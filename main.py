@@ -4,8 +4,8 @@ import urllib3
 import xml.etree.ElementTree as ET
 
 
-USERNAME = "jampani24"
-PASSWORD = "#ROhITH@2007"
+USERNAME = ""
+PASSWORD = ""
 
 
 LOGIN_URL = "https://gateway.iisertvm.ac.in:8090/login.xml"
