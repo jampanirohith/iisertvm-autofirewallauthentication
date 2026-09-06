@@ -1,0 +1,21 @@
+# Android Studio
+
+.idea/
+*.iml
+
+.gradle/
+build/
+*/build/
+
+local.properties
+
+.externalNativeBuild/
+.cxx/
+
+*.jks
+*.keystore
+
+captures/
+
+.DS_Store
+Thumbs.db
