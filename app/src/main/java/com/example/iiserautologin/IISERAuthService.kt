@@ -38,6 +38,12 @@ import javax.net.ssl.X509TrustManager
 class IISERAuthService : Service() {
 
     companion object {
+        @Volatile
+        var isRunning = false
+            private set
+
+        const val ACTION_AUTHENTICATE_NOW =
+            "com.example.iiserautologin.ACTION_AUTHENTICATE_NOW"
 
         private const val TAG = "IISERAuth"
 
@@ -49,10 +55,6 @@ class IISERAuthService : Service() {
 
         private const val GATEWAY_URL =
             "https://gateway.iisertvm.ac.in:8090/httpclient.html"
-
-        private val ACCOUNTS = listOf(
-            Pair("username", "password")
-        )
     }
 
     private val serviceScope =
@@ -175,6 +177,9 @@ class IISERAuthService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+
+        isRunning = true
+        IISERQuickTileService.refreshTile(this)
 
         createNotificationChannel()
 
@@ -318,12 +323,21 @@ class IISERAuthService : Service() {
                 return
             }
 
+            val credentials = CredentialStore.get(this)
+
+            if (credentials == null) {
+                updateNotification(
+                    "No IISER account configured"
+                )
+                return
+            }
+
             updateNotification(
-                "Trying IISER account..."
+                "Authenticating ${credentials.email}..."
             )
 
             val result =
-                login()
+                login(credentials.email, credentials.password)
 
             updateNotification(result)
 
@@ -379,132 +393,122 @@ class IISERAuthService : Service() {
         }
     }
 
-    private fun login(): String {
+    private fun login(email: String, password: String): String {
 
-        for ((username, password) in ACCOUNTS) {
+        try {
 
-            try {
+            Log.d(
+                TAG,
+                "Trying account: $email"
+            )
 
-                Log.d(
-                    TAG,
-                    "Trying account: $username"
-                )
+            val timestamp =
+                System.currentTimeMillis()
+                    .toString()
 
-                val timestamp =
-                    System.currentTimeMillis()
-                        .toString()
+            val formBody =
+                FormBody.Builder()
+                    .add(
+                        "mode",
+                        "191"
+                    )
+                    .add(
+                        "username",
+                        email
+                    )
+                    .add(
+                        "password",
+                        password
+                    )
+                    .add(
+                        "a",
+                        timestamp
+                    )
+                    .add(
+                        "producttype",
+                        "0"
+                    )
+                    .build()
 
-                val formBody =
-                    FormBody.Builder()
-                        .add(
-                            "mode",
-                            "191"
-                        )
-                        .add(
-                            "username",
-                            username
-                        )
-                        .add(
-                            "password",
-                            password
-                        )
-                        .add(
-                            "a",
-                            timestamp
-                        )
-                        .add(
-                            "producttype",
-                            "0"
-                        )
-                        .build()
+            val request =
+                Request.Builder()
+                    .url(LOGIN_URL)
+                    .post(formBody)
+                    .header(
+                        "Accept",
+                        "*/*"
+                    )
+                    .header(
+                        "Content-Type",
+                        "application/x-www-form-urlencoded"
+                    )
+                    .header(
+                        "Origin",
+                        "https://gateway.iisertvm.ac.in:8090"
+                    )
+                    .header(
+                        "Referer",
+                        GATEWAY_URL
+                    )
+                    .build()
 
-                val request =
-                    Request.Builder()
-                        .url(LOGIN_URL)
-                        .post(formBody)
-                        .header(
-                            "Accept",
-                            "*/*"
-                        )
-                        .header(
-                            "Content-Type",
-                            "application/x-www-form-urlencoded"
-                        )
-                        .header(
-                            "Origin",
-                            "https://gateway.iisertvm.ac.in:8090"
-                        )
-                        .header(
-                            "Referer",
-                            GATEWAY_URL
-                        )
-                        .build()
+            client.newCall(request)
+                .execute()
+                .use { response ->
 
-                client.newCall(request)
-                    .execute()
-                    .use { response ->
+                    val xml =
+                        response.body
+                            ?.string()
+                            ?: ""
 
-                        val xml =
-                            response.body
-                                ?.string()
-                                ?: ""
+                    Log.d(
+                        TAG,
+                        "Response code: ${response.code}"
+                    )
+
+                    val status =
+                        parseXmlValue(
+                            xml,
+                            "status"
+                        )
+
+                    val message =
+                        parseXmlValue(
+                            xml,
+                            "message"
+                        )
+
+                    Log.d(
+                        TAG,
+                        "Account=$email status=$status message=$message"
+                    )
+
+                    if (
+                        status.equals(
+                            "LIVE",
+                            ignoreCase = true
+                        )
+                    ) {
 
                         Log.d(
                             TAG,
-                            "Response code: ${response.code}"
+                            "LOGIN SUCCESS: $email"
                         )
 
-                        val status =
-                            parseXmlValue(
-                                xml,
-                                "status"
-                            )
-
-                        val message =
-                            parseXmlValue(
-                                xml,
-                                "message"
-                            )
-
-                        Log.d(
-                            TAG,
-                            "Account=$username " +
-                                    "status=$status " +
-                                    "message=$message"
-                        )
-
-                        if (
-                            status.equals(
-                                "LIVE",
-                                ignoreCase = true
-                            )
-                        ) {
-
-                            Log.d(
-                                TAG,
-                                "LOGIN SUCCESS: $username"
-                            )
-
-                            return "Signed in as $username"
-                        }
-
-                        Log.d(
-                            TAG,
-                            "Account failed: $username"
-                        )
+                        return "Signed in as $email"
                     }
+                }
 
-            } catch (e: Exception) {
+        } catch (e: Exception) {
 
-                Log.e(
-                    TAG,
-                    "Account failed: $username",
-                    e
-                )
-            }
+            Log.e(
+                TAG,
+                "Login failed for account: $email",
+                e
+            )
         }
 
-        return "Account login failed - Reached Limit"
+        return "Login failed for $email"
     }
 
     private fun parseXmlValue(
@@ -634,10 +638,18 @@ class IISERAuthService : Service() {
         startId: Int
     ): Int {
 
+        if (intent?.action == ACTION_AUTHENTICATE_NOW) {
+            serviceScope.launch {
+                authenticate()
+            }
+        }
+
         return START_STICKY
     }
 
     override fun onDestroy() {
+        isRunning = false
+        IISERQuickTileService.refreshTile(this)
 
         try {
 
